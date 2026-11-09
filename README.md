@@ -40,12 +40,10 @@ continues to use the same credentials Secret and connection.
    with its release tag.
 2. Apply the Jenkins values in `cluster-config/apps/dev/jenkins.yaml` through
    the normal deployment process. The existing `deployNamespaces` list includes
-   `redis` and `infisical`. This grants the deployer the existing namespace
-   `admin` role in `infisical`, which permits credentials Secret updates.
-   It does not grant permission to update an InfisicalConnection in `default`.
-   The deployer also needs `get` and `patch` access to that resource before
-   URL updates can run. Adding `default` to the list alone is insufficient:
-   the cluster's current `admin` role has no Infisical resource rules.
+   `redis`, `infisical`, and `default`. The chart binds the existing `admin`
+   ClusterRole in each namespace. No custom Jenkins chart settings are needed.
+   Before a URL update, check that this role includes `get` and `patch` for
+   InfisicalConnections; the namespace binding does not add resource rules.
 3. In Jenkins, select **New Item**. Enter `update-infisical-auth`, select
    **Pipeline**, then select **OK**.
 4. Under **Pipeline**, set **Definition** to **Pipeline script from SCM**.
