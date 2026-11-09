@@ -3,6 +3,45 @@
 Manual Jenkins jobs for cluster operations. Each job calls the shared library.
 These jobs do not build an application repository.
 
+## Job discovery
+
+The root `Jenkinsfile` calls `discoverJobsPipeline()` from the shared library.
+The existing `raulstechtips` organization folder discovers this repository.
+Its `main` job creates and updates the operational jobs in a separate,
+root-level `Jobs` folder:
+
+```text
+Jenkins home
++-- raulstechtips
+|   +-- platform-operations
+|       +-- main
++-- Jobs
+    +-- Update Infisical Auth
+```
+
+Discovery reads filenames matching `pipelines/*.Jenkinsfile`. It does not
+read or execute their Groovy contents. Use lowercase words separated by
+hyphens, for example `update-infisical-auth.Jenkinsfile`. Files in nested
+directories are not discovered.
+
+The filename supplies the stable job ID, `Jobs/update-infisical-auth`.
+The display name replaces hyphens with spaces and capitalizes each word:
+`Update Infisical Auth`. No metadata file or display-name parameter is needed.
+
+To add a job, add its Jenkinsfile and merge it to `main`. The normal GitHub
+push build refreshes the job list. Only `main` can update the list; feature
+branches, pull requests, and tags do not change generated jobs.
+Each generated job loads its own Jenkinsfile from this repository's `main`
+branch, using the repository's existing SCM credential.
+
+Discovery does not start operational jobs or give them automatic build
+triggers. It preserves the parameters and options initialized by each
+operational pipeline. Run jobs manually from `Jobs`. Removing a file disables its job
+and retains its history. Restoring the same filename re-enables the same
+job. Renaming a file disables the old job and creates a new one.
+Do not move or rename the discovery job: Job DSL tracks generated jobs
+through that job.
+
 ## Update Infisical authentication
 
 Entry point: `pipelines/update-infisical-auth.Jenkinsfile`.
@@ -44,18 +83,24 @@ continues to use the same credentials Secret and connection.
    ClusterRole in each namespace. No custom Jenkins chart settings are needed.
    Before a URL update, check that this role includes `get` and `patch` for
    InfisicalConnections; the namespace binding does not add resource rules.
-3. In Jenkins, select **New Item**. Enter `update-infisical-auth`, select
-   **Pipeline**, then select **OK**.
-4. Under **Pipeline**, set **Definition** to **Pipeline script from SCM**.
-   Select **Git** and enter
-   `https://github.com/raulstechtips/platform-operations.git`.
-   Select the existing `github-app` credential, set **Branch Specifier** to
-   `*/main`, and set **Script Path** to
-   `pipelines/update-infisical-auth.Jenkinsfile`.
-   Leave build triggers disabled, then select **Save**.
-   Adding another manual job uses the same UI steps with its own script path.
-   It requires no Jenkins chart field or controller restart.
-5. On a newly created job, select **Build Now** once to register its
+3. Open **Jenkins > raulstechtips > Scan Organization Now**. After the scan,
+   open **platform-operations > main** and select **Build Now**.
+   If `main` is not listed, run **Scan Multibranch Pipeline Now** first.
+   The initial build is explicit because organization indexing does not
+   automatically run newly discovered branches in this Jenkins setup.
+4. If discovery stops with **script not yet approved for use**, open
+   **Manage Jenkins > In-process Script Approval** as an administrator.
+   Inspect and approve the Job DSL script that starts with `folder('Jobs')`
+   and creates SCM pipelines from `jobDefinitions`. Run
+   **raulstechtips > platform-operations > main > Build Now** again.
+   The script is fixed; filenames and SCM settings are passed as data.
+   Adding or removing pipeline files does not require another approval.
+   A later library change to the DSL script requires its own approval.
+5. Return to Jenkins home. Open **Jobs > Update Infisical Auth**.
+   The generated job uses **Pipeline script from SCM**, branch `*/main`,
+   and script path `pipelines/update-infisical-auth.Jenkinsfile`.
+   It has no automatic build trigger. No controller restart is required.
+6. On a newly created operational job, select **Build Now** once to register its
    Declarative Pipeline parameters. This first build fails because no input
    was supplied. It makes no Kubernetes change. Refresh the job page.
 
@@ -65,7 +110,7 @@ The job uses its Kubernetes service account, not an Infisical login.
 
 ### Run the job
 
-1. Open **Jenkins > update-infisical-auth > Build with Parameters**.
+1. Open **Jenkins > Jobs > Update Infisical Auth > Build with Parameters**.
 2. Check `INFISICAL_CONNECTION_NAME` if you will change the URL.
    Fill in only the replacement fields you want to change.
 3. Select **Build**.
@@ -111,7 +156,8 @@ From `jenkins-shared-library`, run:
 ./gradlew test
 ```
 
-The unit tests check input validation, fixed targets, connection selection,
+The unit tests check discovery gating, filename mapping, job-generation
+settings, authentication input validation, fixed targets, connection selection,
 and selective command generation. They do not access a cluster.
 
 From `jenkins`, run:
