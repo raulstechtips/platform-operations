@@ -13,7 +13,7 @@ The job updates only these existing Kubernetes resources:
 | --- | --- | --- |
 | `INFISICAL_CLIENT_ID` | Secret `infisical/universal-auth-credentials` | `data.clientId` |
 | `INFISICAL_CLIENT_SECRET` | Secret `infisical/universal-auth-credentials` | `data.clientSecret` |
-| `INFISICAL_URL` | InfisicalConnection `default/infisical-prod` | `spec.address` |
+| `INFISICAL_URL` | InfisicalConnection `default/<INFISICAL_CONNECTION_NAME>` | `spec.address` |
 
 All three inputs are optional. Supply at least one.
 An empty or whitespace-only input leaves its field unchanged.
@@ -22,7 +22,12 @@ The client secret is a password parameter.
 For the URL, supply the complete API address, for example
 `https://infisical.dev.raulstechtips.dev/api`.
 
-The resource names are fixed in the Jenkinsfile. They are not build parameters.
+The library fixes the credentials namespace to `infisical`, the Secret name
+to `universal-auth-credentials`, and the connection namespace to `default`.
+`INFISICAL_CONNECTION_NAME` defaults to `infisical-prod`. Set it to another
+existing connection, such as `infisical-dev`, when needed.
+This parameter selects the target for a URL update; it does not rename a
+connection or count as a replacement value when the other three inputs are empty.
 The job does not create resources, change Git, search for other Infisical URLs,
 or change an `InfisicalAuth` reference. The existing authentication resource
 continues to use the same credentials Secret and connection.
@@ -33,15 +38,25 @@ continues to use the same credentials Secret and connection.
    The Jenkinsfile loads the library's `main` branch until its first release
    containing this job. When that release is available, replace `main`
    with its release tag.
-2. Publish a Jenkins chart containing `infisicalAuthUpdate` and `pipelineJobs`.
-3. Deploy that chart with the settings in
-   `cluster-config/apps/dev/jenkins.yaml`.
-   The new `infisicalAuthUpdate` settings grant `get` and `patch` on only
-   the named credentials Secret and connection. They do not add either
-   namespace to `deployNamespaces`.
-4. Jenkins configuration as code creates the `update-infisical-auth` job.
-   It loads this repository's Jenkinsfile through SCM. There is no automatic
-   build trigger.
+2. Apply the Jenkins values in `cluster-config/apps/dev/jenkins.yaml` through
+   the normal deployment process. The existing `deployNamespaces` list includes
+   `redis` and `infisical`. This grants the deployer the existing namespace
+   `admin` role in `infisical`, which permits credentials Secret updates.
+   It does not grant permission to update an InfisicalConnection in `default`.
+   The deployer also needs `get` and `patch` access to that resource before
+   URL updates can run. Adding `default` to the list alone is insufficient:
+   the cluster's current `admin` role has no Infisical resource rules.
+3. In Jenkins, select **New Item**. Enter `update-infisical-auth`, select
+   **Pipeline**, then select **OK**.
+4. Under **Pipeline**, set **Definition** to **Pipeline script from SCM**.
+   Select **Git** and enter
+   `https://github.com/raulstechtips/platform-operations.git`.
+   Select the existing `github-app` credential, set **Branch Specifier** to
+   `*/main`, and set **Script Path** to
+   `pipelines/update-infisical-auth.Jenkinsfile`.
+   Leave build triggers disabled, then select **Save**.
+   Adding another manual job uses the same UI steps with its own script path.
+   It requires no Jenkins chart field or controller restart.
 5. On a newly created job, select **Build Now** once to register its
    Declarative Pipeline parameters. This first build fails because no input
    was supplied. It makes no Kubernetes change. Refresh the job page.
@@ -53,7 +68,8 @@ The job uses its Kubernetes service account, not an Infisical login.
 ### Run the job
 
 1. Open **Jenkins > update-infisical-auth > Build with Parameters**.
-2. Fill in only the fields you want to replace.
+2. Check `INFISICAL_CONNECTION_NAME` if you will change the URL.
+   Fill in only the replacement fields you want to change.
 3. Select **Build**.
 4. Open the build's **Console Output**. A successful build prints the names
    of the resources it patched, not their credential values.
@@ -64,6 +80,8 @@ Examples:
   Leave the other two inputs empty.
 - Replace the client identity: fill in both client ID and client secret.
 - Change the server address: fill in `INFISICAL_URL`.
+- Update the development connection: set `INFISICAL_CONNECTION_NAME` to
+  `infisical-dev` and fill in `INFISICAL_URL`.
 - Replace all three: fill in all three inputs.
 
 The job validates its inputs and submits server-side dry runs for every
@@ -92,11 +110,11 @@ resources. Those changes remain a separate operator action.
 From `jenkins-shared-library`, run:
 
 ```text
-./gradlew test operationsIntegrationTest
+./gradlew test
 ```
 
-The integration checks run the Groovy command helper with Bash and jq against
-a local Kubernetes fixture. They do not access a cluster.
+The unit tests check input validation, fixed targets, connection selection,
+and selective command generation. They do not access a cluster.
 
 From `jenkins`, run:
 
