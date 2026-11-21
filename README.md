@@ -17,6 +17,10 @@ Jenkins home
 |       +-- main
 +-- Jobs
     +-- Update Infisical Auth
+    +-- Create Minio Bucket
+    +-- Create Minio User
+    +-- Rotate Minio Keys
+    +-- Delete Minio User
 ```
 
 Discovery reads filenames matching `pipelines/*.Jenkinsfile`. It does not
@@ -147,6 +151,142 @@ This job deliberately does not update Git.
 
 Changing this connection does not update separate `hostAPI` values on other
 resources. Those changes remain a separate operator action.
+
+## Create Minio Bucket
+
+Entry point: `pipelines/create-minio-bucket.Jenkinsfile`.
+
+The job creates bucket `{NAME}-{ENVIRONMENT}` when it does not exist. It also
+creates read-only and read-write policies and users for that bucket. It stores
+one access key pair for each user in Infisical:
+
+| Input or result | Value |
+| --- | --- |
+| `NAME` | Bucket base name |
+| `ENVIRONMENT` | `dev`, `staging`, or `prod` |
+| Bucket | `{NAME}-{ENVIRONMENT}` |
+| Policy and user | `{NAME}-{ENVIRONMENT}-{level}` for `ro` and `rw` |
+| Infisical project and environment | Project `k3s`, environment `{ENVIRONMENT}` |
+| Infisical folder | `/minio/users/{NAME}/{level}` |
+| Infisical keys | `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` |
+
+The job does not change an existing bucket or its data. It does not remove a
+bucket.
+
+### Prepare Jenkins
+
+The Jenkins credentials `jenkins-minio` and `jenkins-infisical` must exist.
+On the first build, Jenkins registers the job parameters. That build has no
+input and changes nothing. Refresh the job page after the build.
+
+### Run the job
+
+1. Open **Jenkins > Jobs > Create Minio Bucket > Build with Parameters**.
+2. Enter `NAME` and select `ENVIRONMENT`.
+3. Select **Build**.
+4. Check the build's **Console Output** for the result.
+
+## Create Minio User
+
+Entry point: `pipelines/create-minio-user.Jenkinsfile`.
+
+The job creates a policy and user for each selected access level. It stores
+each user's access key pair in Infisical:
+
+| Input or result | Value |
+| --- | --- |
+| `USER_NAME` | User base name |
+| `ACCESS` | `RO`, `RW`, or `BOTH` |
+| `BUCKETS` | Comma, space, or newline-separated bucket names |
+| `ENVIRONMENT` | `dev`, `staging`, or `prod` |
+| Policy and user | `{USER_NAME}-{ENVIRONMENT}-{level}` |
+| Infisical project and environment | Project `k3s`, environment `{ENVIRONMENT}` |
+| Infisical folder | `/minio/users/{USER_NAME}/{level}` |
+| Infisical keys | `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` |
+
+`BOTH` creates `ro` and `rw` users. The job does not create the buckets in
+`BUCKETS` or remove any bucket.
+
+### Prepare Jenkins
+
+The Jenkins credentials `jenkins-minio` and `jenkins-infisical` must exist.
+On the first build, Jenkins registers the job parameters. That build has no
+input and changes nothing. Refresh the job page after the build.
+
+### Run the job
+
+1. Open **Jenkins > Jobs > Create Minio User > Build with Parameters**.
+2. Enter the user name and bucket names. Select the access level and
+   environment.
+3. Select **Build**.
+4. Check the build's **Console Output** for the result.
+
+## Rotate Minio Keys
+
+Entry point: `pipelines/rotate-minio-keys.Jenkinsfile`.
+
+The job creates a new access key for each selected existing user, stores it
+in Infisical, then removes the user's other access keys:
+
+| Input or result | Value |
+| --- | --- |
+| `NAME` | User base name |
+| `ENVIRONMENT` | `dev`, `staging`, or `prod` |
+| `ACCESS` | `RO`, `RW`, or `BOTH` |
+| User | `{NAME}-{ENVIRONMENT}-{level}` |
+| Infisical project and environment | Project `k3s`, environment `{ENVIRONMENT}` |
+| Infisical folder | `/minio/users/{NAME}/{level}` |
+| Infisical keys | `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` |
+
+Consumers fail to access MinIO after rotation until they reload the new secret.
+The job does not change buckets, policies, or users.
+
+### Prepare Jenkins
+
+The Jenkins credentials `jenkins-minio` and `jenkins-infisical` must exist.
+On the first build, Jenkins registers the job parameters. That build has no
+input and changes nothing. Refresh the job page after the build.
+
+### Run the job
+
+1. Open **Jenkins > Jobs > Rotate Minio Keys > Build with Parameters**.
+2. Enter the user name. Select the environment and access level.
+3. Select **Build**.
+4. Make each consumer reload its secret. Check the build's **Console Output**
+   for the result.
+
+## Delete Minio User
+
+Entry point: `pipelines/delete-minio-user.Jenkinsfile`.
+
+The job removes the selected users, their policies, and their Infisical
+folders:
+
+| Input or result | Value |
+| --- | --- |
+| `NAME` | User base name |
+| `ENVIRONMENT` | `dev`, `staging`, or `prod` |
+| `ACCESS` | `RO`, `RW`, or `BOTH` |
+| `CONFIRM_NAME` | Must equal `NAME` |
+| Policy and user | `{NAME}-{ENVIRONMENT}-{level}` |
+| Infisical project and environment | Project `k3s`, environment `{ENVIRONMENT}` |
+| Infisical folder | `/minio/users/{NAME}/{level}` |
+
+The job never removes a bucket. It logs: `Bucket is not removed by this job.`
+
+### Prepare Jenkins
+
+The Jenkins credentials `jenkins-minio` and `jenkins-infisical` must exist.
+On the first build, Jenkins registers the job parameters. That build has no
+input and changes nothing. Refresh the job page after the build.
+
+### Run the job
+
+1. Open **Jenkins > Jobs > Delete Minio User > Build with Parameters**.
+2. Enter the user name in both `NAME` and `CONFIRM_NAME`. Select the
+   environment and access level.
+3. Select **Build**.
+4. Check the build's **Console Output** for the result.
 
 ## Local verification
 
