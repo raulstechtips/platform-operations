@@ -21,6 +21,7 @@ Jenkins home
     +-- Create Minio User
     +-- Rotate Minio Keys
     +-- Delete Minio User
+    +-- Infisical Release Sync
 ```
 
 Discovery reads filenames matching `pipelines/*.Jenkinsfile`. It does not
@@ -39,8 +40,9 @@ Each generated job loads its own Jenkinsfile from this repository's `main`
 branch, using the repository's existing SCM credential.
 
 Discovery does not start operational jobs or give them automatic build
-triggers. It preserves the parameters and options initialized by each
-operational pipeline. Run jobs manually from `Jobs`. Removing a file disables its job
+triggers. It preserves the parameters, options, and triggers initialized by
+each operational pipeline, so a pipeline that declares `triggers { cron(...) }`
+keeps its schedule after a refresh. Run jobs manually from `Jobs`. Removing a file disables its job
 and retains its history. Restoring the same filename re-enables the same
 job. Renaming a file disables the old job and creates a new one.
 Do not move or rename the discovery job: Job DSL tracks generated jobs
@@ -287,6 +289,62 @@ input and changes nothing. Refresh the job page after the build.
    environment and access level.
 3. Select **Build**.
 4. Check the build's **Console Output** for the result.
+
+## Infisical Release Sync
+
+Entry point: `pipelines/infisical-release-sync.Jenkinsfile`.
+
+The job creates the missing `release/vX.Y.Z` branches in
+`raulstechtips/secrets-manager`, one for each upstream Infisical platform tag
+`vX.Y.Z` that is newer than the newest release branch. For each tag it:
+
+1. Cuts `release/<tag>` from the upstream tag.
+2. Cherry-picks the commits of the previous release branch after that branch's
+   tag. Commits that upstream already has are dropped. The commits keep their
+   author; the committer is `infisical-release-jenkins[bot]`.
+3. Pushes the branch. The push starts the build of that branch. The job does
+   not wait for the build.
+
+| Input | Value |
+| --- | --- |
+| `MODE` | `next`: create only the next branch. `all`: create every missing branch, oldest first. |
+
+The Jenkinsfile sets the `MODE` default and the timer:
+
+```groovy
+infisicalReleaseSyncPipeline(
+    mode: 'next',   // 'all' after the backfill
+    schedule: ''    // 'TZ=UTC\n0 6 * * *' after the backfill
+)
+```
+
+A timer run uses the `MODE` default. During the backfill keep `next` with no
+schedule, and run the job by hand for each release. Near the end, set `all`
+and the schedule, so that the nightly run creates the remaining branches.
+After a change to the Jenkinsfile, run the job once by hand so that Jenkins
+registers the new default and timer.
+
+The job stops, and pushes nothing for that tag, when the previous release
+branch has a merge commit after its tag, or when a cherry-pick does not apply.
+The log lists the conflicting files. Create that release branch by hand; the
+next run continues from it. The job never changes a branch that exists.
+
+### Prepare Jenkins
+
+The Jenkins credential `github-app` must exist, and the GitHub App must have
+Contents and Workflows write access to `raulstechtips/secrets-manager`. The
+first branch, `release/v0.162.21`, must exist before the first run.
+On the first build, Jenkins registers the job parameters. That build fails
+with `MODE must be 'next' or 'all'` and changes nothing. Refresh the job page
+after the build.
+
+### Run the job
+
+1. Open **Jenkins > Jobs > Infisical Release Sync > Build with Parameters**.
+2. Select `MODE`.
+3. Select **Build**.
+4. Check the build's **Console Output** and description for the created
+   branches.
 
 ## Local verification
 
